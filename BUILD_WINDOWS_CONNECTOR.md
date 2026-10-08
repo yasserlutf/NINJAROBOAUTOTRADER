@@ -9,6 +9,6 @@ The Windows setup program is built on a Windows runner because PyInstaller packa
 3. Open that workflow run, download the `NinjaRoboForex-Windows-Installer` artifact, and extract it. The extracted file is `NinjaRoboConnectorSetup.exe`.
 4. Copy that installer to the Windows computer or VMware Fusion Windows VM and double-click it.
 
-The installer installs the connector under the current Windows user (no administrator prompt), offers automatic startup at sign-in, and starts the connector after setup. On first launch it asks for the Ninja Robo app email and password. It does not ask for MT5's trading password. The bridge attaches to the MT5 terminal already running on that Windows computer and only syncs account telemetry; it does not place trades.
+The installer installs the connector under the current Windows user (no administrator prompt), offers automatic startup at sign-in, and starts the connector after setup. It supports x64 Windows and Windows 11 on Arm through x64 emulation. On first launch it asks for the Ninja Robo app email and password. It does not ask for MT5's trading password. The bridge attaches to the MT5 terminal already running on that Windows computer and only syncs account telemetry; it does not place trades.
 
 This build is unsigned. Windows may show a SmartScreen warning until the executable is signed with a code-signing certificate. The workflow artifact is for installation/testing and expires after 30 days; it is not yet a public download page or auto-updater.

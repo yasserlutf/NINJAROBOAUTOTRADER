@@ -1,5 +1,5 @@
 #define AppName "Ninja Robo Forex Connector"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.1"
 #define AppPublisher "Ninja Robo Forex"
 
 [Setup]
@@ -10,8 +10,8 @@ AppPublisher={#AppPublisher}
 DefaultDirName={localappdata}\Programs\Ninja Robo Forex Connector
 DefaultGroupName={#AppName}
 PrivilegesRequired=lowest
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 OutputBaseFilename=NinjaRoboConnectorSetup
 Compression=lzma2
 SolidCompression=yes
