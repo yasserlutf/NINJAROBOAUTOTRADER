@@ -1,5 +1,5 @@
 #define AppName "Ninja Robo Forex Connector"
-#define AppVersion "1.0.1"
+#define AppVersion "1.0.2"
 #define AppPublisher "Ninja Robo Forex"
 
 [Setup]

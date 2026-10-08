@@ -1,6 +1,6 @@
 # Build the Windows installer
 
-The Windows setup program is built on a Windows runner because PyInstaller packages for the operating system it runs on. The repository workflow builds a standalone connector executable, wraps it in an Inno Setup installer, then publishes `NinjaRoboConnectorSetup.exe` as a downloadable GitHub Actions artifact.
+The Windows setup program is built on a Windows runner because PyInstaller packages for the operating system it runs on. The repository workflow builds a standalone connector executable, checks that its MT5 and NumPy imports work, wraps it in an Inno Setup installer, then publishes `NinjaRoboConnectorSetup.exe` as a downloadable GitHub Actions artifact.
 
 ## Produce the installer
 

@@ -28,7 +28,7 @@ jobs:
       - name: Install connector and packaging dependencies
         run: |
           py -m pip install --upgrade pip
-          py -m pip install MetaTrader5 PyInstaller
+          py -m pip install MetaTrader5 numpy PyInstaller
 
       - name: Package the connector executable
         run: >-
@@ -36,7 +36,11 @@ jobs:
           --name NinjaRoboConnector
           --add-data "app/google-services.json;app"
           --collect-all MetaTrader5
+          --collect-all numpy
           bridge/mt5_firebase_bridge.py
+
+      - name: Smoke-check the packaged connector imports
+        run: .\dist\NinjaRoboConnector.exe --self-check
 
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress

@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import MetaTrader5 as mt5
+import numpy as np
 
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
@@ -362,6 +363,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if "--self-check" in sys.argv:
+        print(f"Connector bundle OK: MetaTrader5 {mt5.__version__}, NumPy {np.__version__}")
+        raise SystemExit(0)
     try:
         main()
     except Exception as error:
