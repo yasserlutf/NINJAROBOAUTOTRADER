@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "442161957547",
+    "firebase_url": "https://ninja-robo-auto-trader-default-rtdb.firebaseio.com",
+    "project_id": "ninja-robo-auto-trader",
+    "storage_bucket": "ninja-robo-auto-trader.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:442161957547:android:d113b5aed1dcb7450605ee",
+        "android_client_info": {
+          "package_name": "nerd.forex.ninjaroboautotrader"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCNI1wJHms1iVWaiVKw9qz7Y-dQ_aPpTgE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
