@@ -1,0 +1,53 @@
+name: Build Windows connector installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "bridge/**"
+      - "packaging/**"
+      - "app/google-services.json"
+      - ".github/workflows/build-windows-connector.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install connector and packaging dependencies
+        run: |
+          py -m pip install --upgrade pip
+          py -m pip install MetaTrader5 PyInstaller
+
+      - name: Package the connector executable
+        run: >-
+          py -m PyInstaller --noconfirm --clean --onefile
+          --name NinjaRoboConnector
+          --add-data "app/google-services.json;app"
+          --collect-all MetaTrader5
+          bridge/mt5_firebase_bridge.py
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build setup executable
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Odist packaging\NinjaRoboConnector.iss'
+
+      - name: Publish installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NinjaRoboForex-Windows-Installer
+          path: dist/NinjaRoboConnectorSetup.exe
+          if-no-files-found: error
+          retention-days: 30
