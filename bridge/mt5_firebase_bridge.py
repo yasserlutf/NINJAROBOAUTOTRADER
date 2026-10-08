@@ -25,6 +25,7 @@ ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
 GOOGLE_SERVICES = ROOT / "app" / "google-services.json"
 SYNC_SECONDS = 15
 POLL_SECONDS = 5
+NETWORK_RETRY_SECONDS = 10
 SESSION_PATH = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "NinjaRoboForex" / "firebase-session.bin"
 
 
@@ -105,13 +106,18 @@ def request_json(url: str, method: str = "GET", body: dict | None = None,
         headers["Authorization"] = f"Bearer {token}"
     payload = json.dumps(body).encode("utf-8") if body is not None else None
     request = urllib.request.Request(url, data=payload, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            raw = response.read()
-            return json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as error:
-        detail = error.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Firebase HTTP {error.code}: {detail}") from None
+    while True:
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                raw = response.read()
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Firebase HTTP {error.code}: {detail}") from None
+        except urllib.error.URLError as error:
+            reason = error.reason if isinstance(error, urllib.error.URLError) else error
+            print(f"Temporary Firebase network/DNS error: {reason}. Retrying in {NETWORK_RETRY_SECONDS} seconds.")
+            time.sleep(NETWORK_RETRY_SECONDS)
 
 
 class FirebaseSession:
