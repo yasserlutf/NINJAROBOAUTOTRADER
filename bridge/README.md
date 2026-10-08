@@ -13,7 +13,9 @@ This local bridge is for the Windows computer where MetaTrader 5 is already runn
 
 For maintainers: see `BUILD_WINDOWS_CONNECTOR.md` for the Windows build workflow. Until its first successful GitHub Actions run, the installer executable is not yet available; the repository contains the scripts that build it.
 
-The bridge checks for new requests every 5 seconds and syncs account/position values every 15 seconds. If the logged-in MT5 account doesn't match the latest app request, it reports the mismatch in the app. Fix the terminal login, then send a fresh request from Settings.
+The connector checks MT5 positions every second. New or closed positions and changes to trade settings are sent as soon as the next check detects them; changing prices and profit are sent no more often than every 2 seconds. Account values such as equity are also refreshed when they change, with a 2-second write limit and a 15-second freshness heartbeat. The Android app receives each Firestore update through its live listener. Network/DNS interruptions are retried automatically.
+
+This is near-real-time polling, not zero-delay event streaming: detection can take about one second, plus network and Firebase processing time. It avoids writing to Firebase on every market tick. If the logged-in MT5 account doesn't match the latest app request, it reports the mismatch in the app. Fix the terminal login, then send a fresh request from Settings.
 
 ## Research-only scalping prototype
 

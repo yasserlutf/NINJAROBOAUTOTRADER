@@ -23,8 +23,11 @@ import numpy as np
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
 GOOGLE_SERVICES = ROOT / "app" / "google-services.json"
-SYNC_SECONDS = 15
-POLL_SECONDS = 5
+ACCOUNT_WRITE_SECONDS = 2
+POSITION_WRITE_SECONDS = 2
+HEARTBEAT_SECONDS = 15
+POLL_SECONDS = 1
+REQUEST_POLL_SECONDS = 5
 NETWORK_RETRY_SECONDS = 10
 SESSION_PATH = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "NinjaRoboForex" / "firebase-session.bin"
 
@@ -251,29 +254,86 @@ def write_document(session: FirebaseSession, path: str, values: dict) -> None:
     session.firestore(path, "PATCH", {"fields": firestore_fields}, list(firestore_fields))
 
 
-def sync_positions(session: FirebaseSession, positions: tuple) -> None:
+def position_values(position) -> dict:
+    return {
+        "symbol": position.symbol,
+        "side": "BUY" if position.type == mt5.POSITION_TYPE_BUY else "SELL",
+        "volume": float(position.volume),
+        "openPrice": float(position.price_open),
+        "currentPrice": float(position.price_current),
+        "profit": float(position.profit),
+        "stopLoss": float(position.sl),
+        "takeProfit": float(position.tp),
+    }
+
+
+def sync_positions(session: FirebaseSession, positions: tuple,
+                   known_ids: set[str], last_written: dict[str, tuple[dict, float]]) -> int:
+    """Write new/changed positions promptly, throttle tick-only changes, and remove closed ones."""
     collection = f"users/{session.uid}/open_positions"
-    current_ids = set()
+    current_ids: set[str] = set()
+    now = time.monotonic()
+    changed_count = 0
     for position in positions:
         ticket = str(position.ticket)
         current_ids.add(ticket)
-        write_document(session, f"{collection}/{urllib.parse.quote(ticket, safe='')}", {
-            "symbol": position.symbol,
-            "side": "BUY" if position.type == mt5.POSITION_TYPE_BUY else "SELL",
-            "volume": float(position.volume),
-            "openPrice": float(position.price_open),
-            "currentPrice": float(position.price_current),
-            "profit": float(position.profit),
-            "stopLoss": float(position.sl),
-            "takeProfit": float(position.tp),
-        })
+        values = position_values(position)
+        previous = last_written.get(ticket)
+        structural_fields = ("symbol", "side", "volume", "openPrice", "stopLoss", "takeProfit")
+        structural_change = previous is None or any(
+            previous[0].get(field) != values[field] for field in structural_fields
+        )
+        snapshot_change = previous is None or any(
+            previous[0].get(field) != values[field] for field in values
+        )
+        due_for_snapshot = previous is None or now - previous[1] >= POSITION_WRITE_SECONDS
+        if snapshot_change and (structural_change or due_for_snapshot):
+            encoded_ticket = urllib.parse.quote(ticket, safe="")
+            write_document(session, f"{collection}/{encoded_ticket}", values)
+            last_written[ticket] = (values, now)
+            changed_count += 1
 
-    existing = session.firestore(collection).get("documents", [])
-    for document in existing:
-        ticket = document["name"].rsplit("/", 1)[-1]
-        if ticket not in current_ids:
-            relative_path = document["name"].split("/documents/", 1)[1]
-            session.firestore(relative_path, "DELETE")
+    for ticket in known_ids - current_ids:
+        relative_path = f"{collection}/{urllib.parse.quote(ticket, safe='')}"
+        session.firestore(relative_path, "DELETE")
+        last_written.pop(ticket, None)
+        changed_count += 1
+    known_ids.clear()
+    known_ids.update(current_ids)
+    return changed_count
+
+
+def account_values(account, server: str) -> dict:
+    return {
+        "brokerStatus": "connected",
+        "brokerServer": server,
+        "accountLogin": str(account.login),
+        "currency": str(account.currency),
+        "balance": float(account.balance),
+        "equity": float(account.equity),
+        "margin": float(account.margin),
+        "freeMargin": float(account.margin_free),
+        "leverage": int(account.leverage),
+        "profit": float(account.profit),
+    }
+
+
+def sync_account(session: FirebaseSession, values: dict, last_values: dict | None,
+                 last_write: float) -> tuple[dict, float, bool]:
+    now = time.monotonic()
+    changed = last_values is None or values != last_values
+    heartbeat_due = now - last_write >= HEARTBEAT_SECONDS
+    if changed and (last_values is None or now - last_write >= ACCOUNT_WRITE_SECONDS):
+        should_write = True
+    else:
+        should_write = heartbeat_due
+    if should_write:
+        write_document(session, f"users/{session.uid}/bridge/account", {
+            **values,
+            "lastSyncedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        })
+        return values, now, True
+    return last_values or values, last_write, False
 
 
 def main() -> None:
@@ -286,8 +346,18 @@ def main() -> None:
 
         print("MT5 terminal found. Waiting for a connection request from the Android app.")
         print("This bridge reads account/position data only; it does not place trades.")
-        last_sync = 0.0
+        position_collection = f"users/{session.uid}/open_positions"
+        existing = session.firestore(position_collection).get("documents", [])
+        known_position_ids = {document["name"].rsplit("/", 1)[-1] for document in existing}
+        last_position_values: dict[str, tuple[dict, float]] = {}
+        last_account_values: dict | None = None
+        last_account_write = 0.0
+        last_status_log = 0.0
+        next_request_poll = 0.0
+        request: dict | None = None
         last_request_id = ""
+        last_mismatch_id = ""
+        last_no_request_notice = 0.0
         while True:
             account = mt5.account_info()
             if account is None:
@@ -295,9 +365,14 @@ def main() -> None:
                 time.sleep(POLL_SECONDS)
                 continue
 
-            request = latest_request(session)
+            monotonic_now = time.monotonic()
+            if monotonic_now >= next_request_poll:
+                request = latest_request(session)
+                next_request_poll = monotonic_now + REQUEST_POLL_SECONDS
             if request is None:
-                print("No app request yet. In the app, open Settings → MT5 connection and request it.")
+                if monotonic_now - last_no_request_notice >= 30:
+                    print("No app request yet. In the app, open Settings → MT5 connection and request it.")
+                    last_no_request_notice = monotonic_now
                 time.sleep(POLL_SECONDS)
                 continue
 
@@ -320,8 +395,10 @@ def main() -> None:
                     f"MT5 is signed in as {actual_login} on {actual_server}; "
                     f"the app requested {expected_login} on {expected_server}."
                 )
-                if request_status in ("pending", "connected"):
+                if request_status in ("pending", "connected") and request_id != last_mismatch_id:
                     patch_request(session, request, "error", message)
+                    request.setdefault("fields", {})["status"] = {"stringValue": "error"}
+                    last_mismatch_id = request_id
                     write_document(session, f"users/{session.uid}/bridge/account", {
                         "brokerStatus": "error",
                         "brokerServer": actual_server,
@@ -337,30 +414,29 @@ def main() -> None:
 
             if request_status == "pending":
                 patch_request(session, request, "connected")
+                request.setdefault("fields", {})["status"] = {"stringValue": "connected"}
                 print(f"Matched MT5 account {actual_login} on {actual_server} to the signed-in app user.")
-                last_sync = 0.0
+                last_account_write = 0.0
 
-            if time.time() - last_sync >= SYNC_SECONDS:
-                now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-                write_document(session, f"users/{session.uid}/bridge/account", {
-                    "brokerStatus": "connected",
-                    "brokerServer": actual_server,
-                    "accountLogin": actual_login,
-                    "currency": str(account.currency),
-                    "balance": float(account.balance),
-                    "equity": float(account.equity),
-                    "margin": float(account.margin),
-                    "freeMargin": float(account.margin_free),
-                    "leverage": int(account.leverage),
-                    "profit": float(account.profit),
-                    "lastSyncedAt": now,
-                })
-                positions = mt5.positions_get()
-                if positions is None:
-                    raise RuntimeError(f"Could not read open positions: {mt5.last_error()}")
-                sync_positions(session, positions)
-                print(f"Synced account {actual_login}: equity {account.equity:.2f} {account.currency}, {len(positions)} open positions.")
-                last_sync = time.time()
+            positions = mt5.positions_get()
+            if positions is None:
+                print(f"MT5 positions unavailable: {mt5.last_error()}")
+                time.sleep(POLL_SECONDS)
+                continue
+
+            position_changes = sync_positions(
+                session, positions, known_position_ids, last_position_values
+            )
+            values = account_values(account, actual_server)
+            last_account_values, last_account_write, account_changed = sync_account(
+                session, values, last_account_values, last_account_write
+            )
+            if position_changes or account_changed or monotonic_now - last_status_log >= HEARTBEAT_SECONDS:
+                print(
+                    f"Live sync {actual_login}: equity {account.equity:.2f} {account.currency}, "
+                    f"{len(positions)} open positions."
+                )
+                last_status_log = monotonic_now
             time.sleep(POLL_SECONDS)
     except KeyboardInterrupt:
         print("Bridge stopped by user.")
